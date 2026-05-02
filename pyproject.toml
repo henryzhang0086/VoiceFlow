@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "voiceflow"
+version = "0.1.0"
+description = "Local Chinese voice input for macOS — offline, low-latency, term-aware"
+readme = "README.md"
+license = {text = "GPL-3.0-or-later"}
+requires-python = ">=3.10"
+dependencies = [
+    "sherpa-onnx>=1.12",
+    "opencc-python-reimplemented>=0.1.7",
+    "sounddevice>=0.4",
+    "soundfile>=0.12",
+    "numpy>=1.24",
+    "PyYAML>=6.0",
+    "noisereduce>=3.0",
+    "pynput>=1.7",
+    "rumps>=0.4",
+    "pyobjc-framework-ApplicationServices",
+    "pyobjc-framework-Cocoa",
+    "pyobjc-framework-Quartz",
+]
+
+[project.optional-dependencies]
+funasr = ["funasr-onnx>=0.3"]
+lm = ["pyctcdecode>=0.5", "kenlm>=0.3", "kaldi-native-fbank>=1.22"]
+llm = ["llama-cpp-python>=0.2"]
+dev = ["pytest", "pytest-cov", "ruff", "edge-tts"]
+integration = ["pytest", "edge-tts"]
+
+[project.scripts]
+voiceflow = "voice_input_method.menubar:main"
+voiceflow-cli = "voice_input_method.cli:main"
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: real ASR model tests (require model download, ~250MB)",
+    "sherpa: sherpa-onnx backend tests (require sherpa-onnx + models)",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = [
+    "E501",   # line too long — let formatter handle
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["voice_input_method"]
+
+[tool.coverage.run]
+source = ["voice_input_method"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__",
+]
+
+[tool.setuptools.packages.find]
+include = ["voice_input_method*"]
+
+[tool.setuptools.package-data]
+"voice_input_method" = ["resources/*"]

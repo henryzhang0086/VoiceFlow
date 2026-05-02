@@ -1,0 +1,42 @@
+# VoiceFlow 配置文件
+# 本地中文语音输入系统
+
+# 识别后端（默认 sherpa-sensevoice，Intel Mac CPU 验证延迟 ~1.2s）
+recognizer_backend: sherpa-sensevoice
+
+# SenseVoice 模型路径（留空则自动检测 ~/quantflow/voiceflow/models/ 下的模型）
+sensevoice_model_path: ""
+sensevoice_tokens_path: ""
+sensevoice_language: "zh"
+
+# 音频录制
+sample_rate: 44100
+channels: 2
+
+# 全局快捷键（按住录音，松开转写）
+# macOS 推荐: fn（仅松开触发，自动用 toggle 模式）
+hotkey: fn
+
+# Toggle 快捷键：按一次开始，再按一次停止
+# 适合长录音。留空禁用。
+toggle_hotkey: ""
+
+# 功能开关
+enable_hotwords: true
+enable_traditional_chinese: false
+enable_noise_reduction: true
+strip_trailing_punctuation: true
+
+# VAD 长音频分段
+enable_vad: true
+vad_max_speech_duration: 15
+
+# LLM 后处理（留空禁用）
+# llm_model_path: ""
+# llm_enable: false
+
+# 平台（自动检测）
+platform: ""
+
+# 资源文件
+hotwords_file: hotwords.txt
