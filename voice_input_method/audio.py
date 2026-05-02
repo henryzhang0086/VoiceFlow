@@ -39,13 +39,15 @@ def resample_to_16k_mono(data: np.ndarray, orig_sr: int, channels: int) -> np.nd
 class AudioRecorder:
     def __init__(self, sample_rate: int = 44100, channels: int = 2,
                  on_chunk: Callable[[np.ndarray], None] | None = None,
-                 chunk_samples: int = 0):
+                 chunk_samples: int = 0,
+                 on_level: Callable[[float], None] | None = None):
         """
         Args:
             sample_rate: Target recording sample rate.
             channels: Target number of channels.
             on_chunk: Callback for streaming mode. Called with 16kHz mono chunks.
             chunk_samples: Number of 16kHz samples per streaming chunk (0 = no streaming).
+            on_level: Callback with audio level (0.0–1.0) on each audio frame.
         """
         self._target_sample_rate = sample_rate
         self._target_channels = channels
@@ -56,6 +58,9 @@ class AudioRecorder:
         self.buffer: list[np.ndarray] = []
         self.is_recording: bool = False
         self.stream: Any = None  # sd.InputStream once started
+
+        # Level callback for visual indicators
+        self._on_level = on_level
 
         # Streaming support
         self._on_chunk = on_chunk
@@ -137,6 +142,12 @@ class AudioRecorder:
         # Copy once — sounddevice reuses the buffer between callbacks.
         chunk = indata.copy()
         self.buffer.append(chunk)
+
+        # Compute RMS level and notify indicator
+        if self._on_level is not None:
+            rms = float(np.sqrt(np.mean(chunk.astype(np.float32) ** 2)))
+            level = min(1.0, rms * 5.0)  # scale for visibility
+            self._on_level(level)
 
         # Stream to disk for crash safety
         if self._wav_writer is not None:

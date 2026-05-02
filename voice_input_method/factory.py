@@ -229,16 +229,20 @@ def create_engine(
     return engine
 
 
-def create_indicator(platform: str) -> RecordingIndicator:
+def create_indicator(platform: str, style: str = "waveform") -> RecordingIndicator:
     """Create a platform-appropriate recording indicator.
 
-    macOS: native AppKit floating panel (PyObjC subprocess).
+    macOS: waveform (default) or legacy dot.
     Other platforms / missing deps: silent no-op.
     """
     if platform == "macos":
         try:
-            from .indicator import MacNativeIndicator
-            return MacNativeIndicator()
+            if style == "waveform":
+                from .indicator import MacWaveformIndicator
+                return MacWaveformIndicator()
+            else:
+                from .indicator import MacNativeIndicator
+                return MacNativeIndicator()
         except (ImportError, OSError):
             pass
     return NullIndicator()

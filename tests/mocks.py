@@ -136,5 +136,8 @@ class MockIndicator:
         self.visible = False
         self.hide_count += 1
 
+    def update_level(self, level: float) -> None:
+        self.last_level = level
+
     def shutdown(self) -> None:
         self.shutdown_called = True

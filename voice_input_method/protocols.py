@@ -110,6 +110,10 @@ class RecordingIndicator(Protocol):
         """Hide the recording indicator."""
         ...
 
+    def update_level(self, level: float) -> None:
+        """Update the audio level (0.0–1.0) for waveform display."""
+        ...
+
     def shutdown(self) -> None:
         """Release resources."""
         ...

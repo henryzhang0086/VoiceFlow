@@ -255,7 +255,7 @@ class TestCreateIndicator:
         """On non-macOS systems, macos indicator import fails gracefully."""
         from voice_input_method.factory import create_indicator
         from voice_input_method.indicator import NullIndicator
-        with patch("voice_input_method.indicator.MacNativeIndicator", side_effect=ImportError):
+        with patch("voice_input_method.indicator.MacWaveformIndicator", side_effect=ImportError):
             indicator = create_indicator("macos")
             assert isinstance(indicator, NullIndicator)
 

@@ -1,7 +1,7 @@
 """VoiceFlow macOS menu bar application via rumps.
 
 Thin shell over VoiceEngine — all business logic lives in engine.py.
-Provides: menu bar icon + status + start/stop control.
+Provides: menu bar icon + status + hotkey selection + start/stop control.
 """
 
 from __future__ import annotations
@@ -12,8 +12,19 @@ from pathlib import Path
 import rumps
 
 from .config import Config, load_config
-from .factory import create_engine
-from .hotkey import CombinedHotkeyListener
+from .factory import create_engine, create_indicator
+from .hotkey import CombinedHotkeyListener, LoneTapToggleListener, _LONE_TAP_KEYS
+
+_HOTKEY_OPTIONS = [
+    ("Shift（单击）", "shift"),
+    ("右 Shift（单击）", "shift_r"),
+    ("Control（单击）", "ctrl"),
+    ("右 Control（单击）", "ctrl_r"),
+    ("Option/Alt（单击）", "alt"),
+    ("Fn（按住）", "fn"),
+    ("F5（按住）", "f5"),
+    ("F6（按住）", "f6"),
+]
 
 
 class VoiceFlowApp(rumps.App):
@@ -21,18 +32,91 @@ class VoiceFlowApp(rumps.App):
         super().__init__("VoiceFlow", quit_button=None)
         self._config = config
         self._engine = None
-        self._hotkey = None
+        self._indicator = create_indicator("macos")
+        self._hotkey_listener = None
         self._loading = True
+        self._current_hotkey = config.toggle_hotkey or config.hotkey
 
         self.icon = None
         self.title = "🎙"
+
+        hotkey_menu = rumps.MenuItem("快捷键")
+        for label, key in _HOTKEY_OPTIONS:
+            item = rumps.MenuItem(
+                f"{'✓ ' if key == self._current_hotkey else '  '}{label}",
+                callback=self._make_hotkey_callback(key),
+            )
+            hotkey_menu.add(item)
+
         self.menu = [
             rumps.MenuItem("状态: 加载中...", callback=None),
+            None,
+            hotkey_menu,
             None,
             rumps.MenuItem("退出", callback=self._quit),
         ]
 
         threading.Thread(target=self._load_engine, daemon=True).start()
+
+    def _make_hotkey_callback(self, key: str):
+        def callback(_):
+            self._switch_hotkey(key)
+        return callback
+
+    def _switch_hotkey(self, new_key: str) -> None:
+        if new_key == self._current_hotkey:
+            return
+
+        if self._hotkey_listener:
+            self._hotkey_listener.stop()
+
+        self._current_hotkey = new_key
+        self._start_hotkey_listener(new_key)
+        self._save_hotkey(new_key)
+
+        hotkey_menu = self.menu["快捷键"]
+        for label, key in _HOTKEY_OPTIONS:
+            prefix = "✓ " if key == new_key else "  "
+            menu_label_old_checked = f"✓ {label}"
+            menu_label_old_unchecked = f"  {label}"
+            if menu_label_old_checked in hotkey_menu:
+                hotkey_menu[menu_label_old_checked].title = f"{prefix}{label}"
+            elif menu_label_old_unchecked in hotkey_menu:
+                hotkey_menu[menu_label_old_unchecked].title = f"{prefix}{label}"
+
+    def _start_hotkey_listener(self, hotkey_name: str) -> None:
+        if hotkey_name in _LONE_TAP_KEYS:
+            self._hotkey_listener = LoneTapToggleListener(
+                hotkey=hotkey_name,
+                on_start=self._start_recording,
+                on_stop=self._stop_recording,
+            )
+        else:
+            self._hotkey_listener = CombinedHotkeyListener(
+                hold_hotkey=hotkey_name,
+                hold_on_press=self._start_recording,
+                hold_on_release=self._stop_recording,
+            )
+        self._hotkey_listener.start()
+
+    def _save_hotkey(self, key: str) -> None:
+        """Persist hotkey choice to config.yaml."""
+        config_path = Path.cwd() / "config.yaml"
+        if not config_path.exists():
+            config_path = Path(__file__).parent.parent / "config.yaml"
+        if not config_path.exists():
+            return
+
+        lines = config_path.read_text(encoding="utf-8").splitlines()
+        new_lines = []
+        for line in lines:
+            if line.startswith("hotkey:"):
+                new_lines.append(f"hotkey: {key}")
+            elif line.startswith("toggle_hotkey:"):
+                new_lines.append(f"toggle_hotkey: {key}")
+            else:
+                new_lines.append(line)
+        config_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
 
     def _load_engine(self) -> None:
         try:
@@ -41,17 +125,12 @@ class VoiceFlowApp(rumps.App):
                 on_result=self._on_result,
                 on_error=self._on_error,
             )
+            # Wire audio level to the waveform indicator
+            self._engine.recorder._on_level = self._indicator.update_level
+
             self._engine.start()
 
-            self._hotkey = CombinedHotkeyListener(
-                hold_hotkey=self._config.hotkey,
-                hold_on_press=self._start_recording,
-                hold_on_release=self._stop_recording,
-                toggle_hotkey=self._config.toggle_hotkey or None,
-                toggle_on_start=self._start_recording,
-                toggle_on_stop=self._stop_recording,
-            )
-            self._hotkey.start()
+            self._start_hotkey_listener(self._current_hotkey)
 
             self._loading = False
             self._update_status("空闲")
@@ -61,11 +140,13 @@ class VoiceFlowApp(rumps.App):
     def _start_recording(self) -> None:
         if self._engine and not self._loading:
             self._engine.start_recording()
+            self._indicator.show()
             self._update_status("录音中...")
             self.title = "🔴"
 
     def _stop_recording(self) -> None:
         if self._engine and not self._loading:
+            self._indicator.hide()
             self._engine.stop_recording()
             self._update_status("转写中...")
             self.title = "⏳"
@@ -79,21 +160,18 @@ class VoiceFlowApp(rumps.App):
         self.title = "⚠️"
 
     def _update_status(self, status: str) -> None:
-        if self.menu and "状态: 加载中..." in [item.title for item in self.menu.values()
-                                              if hasattr(item, "title")]:
-            pass
         try:
-            self.menu.keys()
             first_key = list(self.menu.keys())[0]
             self.menu[first_key].title = f"状态: {status}"
         except (IndexError, KeyError):
             pass
 
     def _quit(self, _) -> None:
-        if self._hotkey:
-            self._hotkey.stop()
+        if self._hotkey_listener:
+            self._hotkey_listener.stop()
         if self._engine:
             self._engine.shutdown()
+        self._indicator.shutdown()
         rumps.quit_application()
 
 
