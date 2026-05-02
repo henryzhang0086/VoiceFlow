@@ -81,11 +81,14 @@ def _run_waveform_process(
     BAR_MIN_H = 3
     DOT_R = 7
 
-    class WaveformView(NSView):
-        _levels = [0.0] * _NUM_BARS
-        _dot_alpha = 1.0
-        _dot_up = False
+    # Module-level state for the subprocess (avoids PyObjC ivar issues)
+    _panel_ref = [None]
+    _view_ref = [None]
+    _dot_alpha = [1.0]
+    _dot_up = [False]
+    _current_levels = [[0.0] * _NUM_BARS]
 
+    class WaveformView(NSView):
         def drawRect_(self, rect):
             w = rect.size.width
             h = rect.size.height
@@ -99,7 +102,7 @@ def _run_waveform_process(
 
             # Pulsing red dot (left side)
             red = NSColor.colorWithCalibratedRed_green_blue_alpha_(
-                0.95, 0.25, 0.25, self._dot_alpha
+                0.95, 0.25, 0.25, _dot_alpha[0]
             )
             red.setFill()
             dot_x = 18
@@ -114,7 +117,7 @@ def _run_waveform_process(
             )
             bar_color.setFill()
 
-            for i, level in enumerate(self._levels):
+            for i, level in enumerate(_current_levels[0]):
                 bar_h = max(BAR_MIN_H, level * BAR_MAX_H)
                 x = BAR_AREA_X + i * (BAR_W + BAR_GAP)
                 y = (h - bar_h) / 2
@@ -136,25 +139,7 @@ def _run_waveform_process(
             text_y = (h - 14) / 2
             text.drawAtPoint_withAttributes_((text_x, text_y), attrs)
 
-        def setLevels_(self, levels):
-            self._levels = levels
-            self.setNeedsDisplay_(True)
-
-        def pulseDot(self):
-            step = 0.04
-            if self._dot_up:
-                self._dot_alpha = min(1.0, self._dot_alpha + step)
-                if self._dot_alpha >= 1.0:
-                    self._dot_up = False
-            else:
-                self._dot_alpha = max(0.4, self._dot_alpha - step)
-                if self._dot_alpha <= 0.4:
-                    self._dot_up = True
-
     class Delegate(NSObject):
-        panel = None
-        waveform_view = None
-
         def applicationDidFinishLaunching_(self, notification):
             screen = NSScreen.mainScreen().frame()
             x = (screen.size.width - PANEL_W) / 2
@@ -179,8 +164,8 @@ def _run_waveform_process(
             )
             panel.setContentView_(waveform_view)
 
-            self.panel = panel
-            self.waveform_view = waveform_view
+            _panel_ref[0] = panel
+            _view_ref[0] = waveform_view
 
             NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
                 0.04, self, "tick:", None, True
@@ -191,26 +176,42 @@ def _run_waveform_process(
                 NSApplication.sharedApplication().terminate_(None)
                 return
 
+            panel = _panel_ref[0]
+            if panel is None:
+                return
+
             if show_event.is_set():
                 show_event.clear()
                 screen = NSScreen.mainScreen().frame()
                 x = (screen.size.width - PANEL_W) / 2
-                self.panel.setFrameOrigin_((x, BOTTOM_MARGIN))
-                self.panel.orderFront_(None)
+                panel.setFrameOrigin_((x, BOTTOM_MARGIN))
+                panel.orderFront_(None)
 
             if hide_event.is_set():
                 hide_event.clear()
-                self.panel.orderOut_(None)
+                panel.orderOut_(None)
 
-            if self.panel.isVisible():
+            if panel.isVisible():
                 # Read level ring buffer and build bar heights
                 idx = level_index.value
                 levels = []
                 for i in range(_NUM_BARS):
                     buf_idx = (idx - _NUM_BARS + i) % _LEVEL_HISTORY
                     levels.append(level_array[buf_idx])
-                self.waveform_view.setLevels_(levels)
-                self.waveform_view.pulseDot()
+                _current_levels[0] = levels
+
+                # Pulse the red dot
+                step = 0.04
+                if _dot_up[0]:
+                    _dot_alpha[0] = min(1.0, _dot_alpha[0] + step)
+                    if _dot_alpha[0] >= 1.0:
+                        _dot_up[0] = False
+                else:
+                    _dot_alpha[0] = max(0.4, _dot_alpha[0] - step)
+                    if _dot_alpha[0] <= 0.4:
+                        _dot_up[0] = True
+
+                _view_ref[0].setNeedsDisplay_(True)
 
     app = NSApplication.sharedApplication()
     app.setActivationPolicy_(1)  # Accessory
