@@ -11,9 +11,8 @@ from .audio import AudioRecorder
 from .config import DEFAULT_OFFLINE_MODELS, Config, resolve_resource_path
 from .engine import EngineConfig, VoiceEngine
 from .hotwords import HotwordManager
-from .indicator import NullIndicator
 from .platform import get_backend
-from .protocols import Recognizer, RecordingIndicator
+from .protocols import Recognizer
 from .text_processing import ChineseConverter
 
 
@@ -229,20 +228,3 @@ def create_engine(
     return engine
 
 
-def create_indicator(platform: str, style: str = "waveform") -> RecordingIndicator:
-    """Create a platform-appropriate recording indicator.
-
-    macOS: waveform (default) or legacy dot.
-    Other platforms / missing deps: silent no-op.
-    """
-    if platform == "macos":
-        try:
-            if style == "waveform":
-                from .indicator import MacWaveformIndicator
-                return MacWaveformIndicator()
-            else:
-                from .indicator import MacNativeIndicator
-                return MacNativeIndicator()
-        except (ImportError, OSError):
-            pass
-    return NullIndicator()

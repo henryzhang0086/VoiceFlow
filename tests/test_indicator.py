@@ -1,6 +1,6 @@
 """Tests for the recording indicator module."""
 
-from voice_input_method.indicator import NullIndicator
+from voice_input_method.indicator import MenuBarIndicator, NullIndicator
 from voice_input_method.protocols import RecordingIndicator
 
 
@@ -12,48 +12,67 @@ class TestNullIndicator:
 
     def test_show_is_noop(self):
         indicator = NullIndicator()
-        indicator.show()  # should not raise
+        indicator.show()
 
     def test_hide_is_noop(self):
         indicator = NullIndicator()
-        indicator.hide()  # should not raise
+        indicator.hide()
 
     def test_shutdown_is_noop(self):
         indicator = NullIndicator()
-        indicator.shutdown()  # should not raise
+        indicator.shutdown()
 
     def test_full_lifecycle(self):
         indicator = NullIndicator()
         indicator.show()
-        indicator.hide()
-        indicator.show()
+        indicator.update_level(0.5)
         indicator.hide()
         indicator.shutdown()
 
 
-class TestCreateIndicator:
-    """Factory function should return NullIndicator on non-macOS platforms."""
+class TestMenuBarIndicator:
+    def test_satisfies_protocol(self):
+        assert isinstance(MenuBarIndicator(), RecordingIndicator)
 
-    def test_non_macos_returns_null(self):
-        from voice_input_method.factory import create_indicator
+    def test_inactive_returns_none(self):
+        ind = MenuBarIndicator()
+        assert ind.render_title() is None
 
-        indicator = create_indicator("x11")
-        assert isinstance(indicator, NullIndicator)
+    def test_active_returns_title(self):
+        ind = MenuBarIndicator()
+        ind.show()
+        for i in range(8):
+            ind.update_level(0.3 + i * 0.05)
+        title = ind.render_title()
+        assert title.startswith("🔴")
+        assert len(title) == 9  # 🔴 + 8 bar chars
 
-    def test_linux_returns_null(self):
-        from voice_input_method.factory import create_indicator
+    def test_levels_reflected_in_bars(self):
+        ind = MenuBarIndicator()
+        ind.show()
+        # Feed max levels
+        for _ in range(8):
+            ind.update_level(1.0)
+        title = ind.render_title()
+        assert "▇" in title
 
-        indicator = create_indicator("wayland")
-        assert isinstance(indicator, NullIndicator)
+    def test_zero_levels(self):
+        ind = MenuBarIndicator()
+        ind.show()
+        for _ in range(8):
+            ind.update_level(0.0)
+        title = ind.render_title()
+        # All spaces (lowest bar)
+        assert title == "🔴" + " " * 8
 
-    def test_windows_returns_null(self):
-        from voice_input_method.factory import create_indicator
+    def test_hide_stops(self):
+        ind = MenuBarIndicator()
+        ind.show()
+        ind.update_level(0.5)
+        ind.hide()
+        assert ind.render_title() is None
 
-        indicator = create_indicator("windows")
-        assert isinstance(indicator, NullIndicator)
-
-    def test_unknown_platform_returns_null(self):
-        from voice_input_method.factory import create_indicator
-
-        indicator = create_indicator("unknown")
-        assert isinstance(indicator, NullIndicator)
+    def test_update_when_inactive_ignored(self):
+        ind = MenuBarIndicator()
+        ind.update_level(0.9)
+        assert ind.render_title() is None

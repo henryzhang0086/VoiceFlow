@@ -244,20 +244,29 @@ class TestCreateEngineFullAssembly:
             assert engine.config.streaming is True
 
 
-class TestCreateIndicator:
-    def test_non_macos_returns_null(self):
-        from voice_input_method.factory import create_indicator
-        from voice_input_method.indicator import NullIndicator
-        indicator = create_indicator("linux")
-        assert isinstance(indicator, NullIndicator)
+class TestMenuBarIndicator:
+    def test_render_title_when_inactive(self):
+        from voice_input_method.indicator import MenuBarIndicator
+        ind = MenuBarIndicator()
+        assert ind.render_title() is None
 
-    def test_macos_fallback_to_null(self):
-        """On non-macOS systems, macos indicator import fails gracefully."""
-        from voice_input_method.factory import create_indicator
-        from voice_input_method.indicator import NullIndicator
-        with patch("voice_input_method.indicator.MacWaveformIndicator", side_effect=ImportError):
-            indicator = create_indicator("macos")
-            assert isinstance(indicator, NullIndicator)
+    def test_render_title_when_active(self):
+        from voice_input_method.indicator import MenuBarIndicator
+        ind = MenuBarIndicator()
+        ind.show()
+        ind.update_level(0.5)
+        ind.update_level(0.8)
+        title = ind.render_title()
+        assert title is not None
+        assert title.startswith("🔴")
+
+    def test_hide_stops_rendering(self):
+        from voice_input_method.indicator import MenuBarIndicator
+        ind = MenuBarIndicator()
+        ind.show()
+        ind.update_level(0.5)
+        ind.hide()
+        assert ind.render_title() is None
 
 
 class TestCreateEngine:

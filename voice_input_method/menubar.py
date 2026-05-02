@@ -12,8 +12,9 @@ from pathlib import Path
 import rumps
 
 from .config import Config, load_config
-from .factory import create_engine, create_indicator
+from .factory import create_engine
 from .hotkey import CombinedHotkeyListener, LoneTapToggleListener, _LONE_TAP_KEYS
+from .indicator import MenuBarIndicator
 
 _HOTKEY_OPTIONS = [
     ("Shift（单击）", "shift"),
@@ -32,9 +33,10 @@ class VoiceFlowApp(rumps.App):
         super().__init__("VoiceFlow", quit_button=None)
         self._config = config
         self._engine = None
-        self._indicator = create_indicator("macos")
+        self._indicator = MenuBarIndicator()
         self._hotkey_listener = None
         self._loading = True
+        self._recording = False
         self._current_hotkey = config.toggle_hotkey or config.hotkey
 
         self.icon = None
@@ -55,6 +57,10 @@ class VoiceFlowApp(rumps.App):
             None,
             rumps.MenuItem("退出", callback=self._quit),
         ]
+
+        # Timer to refresh menubar title with audio level bars during recording
+        self._level_timer = rumps.Timer(self._refresh_level, 0.1)
+        self._level_timer.start()
 
         threading.Thread(target=self._load_engine, daemon=True).start()
 
@@ -141,15 +147,23 @@ class VoiceFlowApp(rumps.App):
         if self._engine and not self._loading:
             self._engine.start_recording()
             self._indicator.show()
+            self._recording = True
             self._update_status("录音中...")
-            self.title = "🔴"
 
     def _stop_recording(self) -> None:
         if self._engine and not self._loading:
+            self._recording = False
             self._indicator.hide()
+            self.title = "⏳"
             self._engine.stop_recording()
             self._update_status("转写中...")
-            self.title = "⏳"
+
+    def _refresh_level(self, _) -> None:
+        """Called by rumps Timer every 100ms to update menubar with audio bars."""
+        if self._recording:
+            title = self._indicator.render_title()
+            if title:
+                self.title = title
 
     def _on_result(self, text: str) -> None:
         self._update_status("空闲")
@@ -171,7 +185,6 @@ class VoiceFlowApp(rumps.App):
             self._hotkey_listener.stop()
         if self._engine:
             self._engine.shutdown()
-        self._indicator.shutdown()
         rumps.quit_application()
 
 
