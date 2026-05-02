@@ -70,15 +70,15 @@ def _run_waveform_process(
     except ImportError:
         return
 
-    PANEL_W = 280
-    PANEL_H = 44
-    CORNER_R = 22
+    PANEL_W = 300
+    PANEL_H = 50
+    CORNER_R = 25
     BOTTOM_MARGIN = 60
-    BAR_W = 3
-    BAR_GAP = 2
+    BAR_W = 4
+    BAR_GAP = 3
     BAR_AREA_X = 50  # left offset for bars (after the red dot)
-    BAR_MAX_H = 28
-    BAR_MIN_H = 3
+    BAR_MAX_H = 32
+    BAR_MIN_H = 4
     DOT_R = 7
 
     # Module-level state for the subprocess (avoids PyObjC ivar issues)

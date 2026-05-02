@@ -146,7 +146,13 @@ class AudioRecorder:
         # Compute RMS level and notify indicator
         if self._on_level is not None:
             rms = float(np.sqrt(np.mean(chunk.astype(np.float32) ** 2)))
-            level = min(1.0, rms * 5.0)  # scale for visibility
+            # Log scale: maps ~0.003 (silence) to ~0.1, speaking to 0.6-1.0
+            if rms > 1e-6:
+                import math
+                db = 20 * math.log10(rms) + 60  # shift so -60dB→0, 0dB→60
+                level = min(1.0, max(0.0, db / 50))
+            else:
+                level = 0.0
             self._on_level(level)
 
         # Stream to disk for crash safety
