@@ -1,48 +1,30 @@
-"""macOS backend: clipboard + Cmd+V paste via pyobjc.
+"""macOS backend: text input via a signed helper binary.
 
-Requires Accessibility permissions in System Settings > Privacy & Security.
-Uses NSPasteboard for clipboard and CGEvent for key simulation — no Qt dependency.
+Uses a separate signed binary (paste_helper) with its own Accessibility
+permission to type text via CGEventKeyboardSetUnicodeString.
 """
 
-import sys
+import subprocess
 import time
-
-from AppKit import NSPasteboard, NSPasteboardTypeString
-from Quartz import (
-    CGEventCreateKeyboardEvent,
-    CGEventPost,
-    CGEventSetFlags,
-    kCGEventFlagMaskCommand,
-    kCGHIDEventTap,
-)
+from pathlib import Path
 
 from .base import PlatformBackend
 
-_kVK_V = 0x09
+_TYPE_HELPER = str(Path.home() / "Applications/VoiceFlow.app/Contents/MacOS/paste_helper")
 
 
 class MacOSBackend(PlatformBackend):
     def __init__(self):
-        self._pasteboard = NSPasteboard.generalPasteboard()
+        pass
 
     def paste_text(self, text: str):
-        old_contents = self._pasteboard.stringForType_(NSPasteboardTypeString)
-
-        self._pasteboard.clearContents()
-        self._pasteboard.setString_forType_(text, NSPasteboardTypeString)
-
-        key_down = CGEventCreateKeyboardEvent(None, _kVK_V, True)
-        key_up = CGEventCreateKeyboardEvent(None, _kVK_V, False)
-        CGEventSetFlags(key_down, kCGEventFlagMaskCommand)
-        CGEventSetFlags(key_up, kCGEventFlagMaskCommand)
-        CGEventPost(kCGHIDEventTap, key_down)
-        CGEventPost(kCGHIDEventTap, key_up)
-
-        time.sleep(0.05)
-
-        if old_contents:
-            self._pasteboard.clearContents()
-            self._pasteboard.setString_forType_(old_contents, NSPasteboardTypeString)
+        subprocess.Popen(
+            [_TYPE_HELPER, text],
+            start_new_session=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
     def check_permissions(self) -> list[str]:
         """Check macOS Accessibility permissions."""

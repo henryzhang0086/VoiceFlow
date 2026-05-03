@@ -11,10 +11,10 @@ import time
 from pathlib import Path
 
 import rumps
+from Quartz import CGEventSourceFlagsState, kCGEventSourceStateCombinedSessionState
 
 from .config import Config, load_config
 from .factory import create_engine
-from .hotkey import CombinedHotkeyListener, LoneTapToggleListener, _LONE_TAP_KEYS
 from .indicator import MenuBarIndicator
 from . import overlay
 
@@ -29,6 +29,16 @@ _HOTKEY_OPTIONS = [
     ("F6（按住）", "f6"),
 ]
 
+_MODIFIER_FLAG_MAP = {
+    "shift": 0x20000,     # kCGEventFlagMaskShift
+    "shift_r": 0x20000,
+    "ctrl": 0x40000,      # kCGEventFlagMaskControl
+    "ctrl_r": 0x40000,
+    "alt": 0x80000,       # kCGEventFlagMaskAlternate
+    "alt_r": 0x80000,
+    "fn": 0x800000,       # kCGEventFlagMaskSecondaryFn
+}
+
 
 class VoiceFlowApp(rumps.App):
     def __init__(self, config: Config):
@@ -36,7 +46,6 @@ class VoiceFlowApp(rumps.App):
         self._config = config
         self._engine = None
         self._indicator = MenuBarIndicator()
-        self._hotkey_listener = None
         self._loading = True
         self._recording = False
         self._current_hotkey = config.toggle_hotkey or config.hotkey
@@ -47,6 +56,11 @@ class VoiceFlowApp(rumps.App):
         self._ripple_frames = [str(icon_dir / f"ripple_{i}.png") for i in range(4)]
         self._ripple_idx = 0
         self._last_ripple = 0.0
+
+        # Lone-tap detection state
+        self._key_down_at: float = 0
+        self._was_down = False
+        self._max_tap_duration = 0.4
 
         hotkey_menu = rumps.MenuItem("快捷键")
         for label, key in _HOTKEY_OPTIONS:
@@ -75,9 +89,6 @@ class VoiceFlowApp(rumps.App):
         if new_key == self._current_hotkey:
             return
 
-        if self._hotkey_listener:
-            self._hotkey_listener.stop()
-
         self._current_hotkey = new_key
         self._start_hotkey_listener(new_key)
         self._save_hotkey(new_key)
@@ -93,19 +104,9 @@ class VoiceFlowApp(rumps.App):
                 hotkey_menu[menu_label_old_unchecked].title = f"{prefix}{label}"
 
     def _start_hotkey_listener(self, hotkey_name: str) -> None:
-        if hotkey_name in _LONE_TAP_KEYS:
-            self._hotkey_listener = LoneTapToggleListener(
-                hotkey=hotkey_name,
-                on_start=self._start_recording,
-                on_stop=self._stop_recording,
-            )
-        else:
-            self._hotkey_listener = CombinedHotkeyListener(
-                hold_hotkey=hotkey_name,
-                hold_on_press=self._start_recording,
-                hold_on_release=self._stop_recording,
-            )
-        self._hotkey_listener.start()
+        self._current_hotkey = hotkey_name
+        self._key_down_at = 0
+        self._was_down = False
 
     def _save_hotkey(self, key: str) -> None:
         """Persist hotkey choice to config.yaml."""
@@ -125,6 +126,33 @@ class VoiceFlowApp(rumps.App):
             else:
                 new_lines.append(line)
         config_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+
+    @rumps.timer(0.05)
+    def _poll_hotkey(self, _):
+        if self._loading:
+            return
+        flag = _MODIFIER_FLAG_MAP.get(self._current_hotkey)
+        if flag is None:
+            return
+        flags = CGEventSourceFlagsState(kCGEventSourceStateCombinedSessionState)
+        is_down = bool(flags & flag)
+
+        if is_down and not self._was_down:
+            self._was_down = True
+            self._key_down_at = time.monotonic()
+        elif not is_down and self._was_down:
+            self._was_down = False
+            elapsed = time.monotonic() - self._key_down_at
+            if elapsed <= self._max_tap_duration:
+                with open("/tmp/voiceflow_debug.log", "a") as f:
+                    f.write(f"[{time.strftime('%H:%M:%S')}] toggle! elapsed={elapsed:.3f}s recording={self._recording}\n")
+                self._toggle_recording()
+
+    def _toggle_recording(self) -> None:
+        if not self._recording:
+            self._start_recording()
+        else:
+            self._stop_recording()
 
     def _load_engine(self) -> None:
         try:
@@ -178,12 +206,16 @@ class VoiceFlowApp(rumps.App):
                 self.template = True
 
     def _on_result(self, text: str) -> None:
+        with open("/tmp/voiceflow_debug.log", "a") as f:
+            f.write(f"[{time.strftime('%H:%M:%S')}] _on_result: '{text}'\n")
         overlay.hide()
         self.icon = None
         self.title = "🎙️"
         self._update_status("空闲")
 
     def _on_error(self, exc: Exception) -> None:
+        with open("/tmp/voiceflow_debug.log", "a") as f:
+            f.write(f"[{time.strftime('%H:%M:%S')}] _on_error: {exc}\n")
         overlay.hide()
         self.icon = None
         self.title = "🎙️"
@@ -197,8 +229,6 @@ class VoiceFlowApp(rumps.App):
             pass
 
     def _quit(self, _) -> None:
-        if self._hotkey_listener:
-            self._hotkey_listener.stop()
         overlay.shutdown()
         if self._engine:
             self._engine.shutdown()
