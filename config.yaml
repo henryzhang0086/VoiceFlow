@@ -15,11 +15,10 @@ channels: 2
 
 # 全局快捷键（按住录音，松开转写）
 # macOS 推荐: fn（仅松开触发，自动用 toggle 模式）
-hotkey: fn
+hotkey: shift
 
 # Toggle 快捷键：按一次开始，再按一次停止
-# 适合长录音。留空禁用。
-toggle_hotkey: ""
+toggle_hotkey: shift
 
 # 功能开关
 enable_hotwords: true

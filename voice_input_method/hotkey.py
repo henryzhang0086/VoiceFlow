@@ -7,14 +7,19 @@ import this module without error.
 Supports two concurrent hotkeys via a single pynput Listener:
   - Hold hotkey (press → start, release → stop)
   - Toggle hotkey (press once → start, press again → stop)
+  - Lone-tap hotkey (modifier key tapped alone without combining other keys)
 """
 
 from __future__ import annotations
 
+import time
 from typing import Callable
 
 # Keys that only fire release events on macOS (need toggle workaround)
 _RELEASE_ONLY_KEYS = {"fn"}
+
+# Keys that need lone-tap detection (modifier keys used for typing)
+_LONE_TAP_KEYS = {"shift", "shift_r", "ctrl", "ctrl_r", "alt", "alt_r"}
 
 
 def _resolve_key(name: str):
@@ -232,3 +237,66 @@ class CombinedHotkeyListener:
     @property
     def toggle_recording(self) -> bool:
         return self._toggle_recording
+
+
+class LoneTapToggleListener:
+    """Toggle triggered by tapping a modifier key alone (no combo).
+
+    Detects: key pressed → no other key pressed in between → key released within threshold.
+    This avoids firing when shift is used for capitals (Shift+A) or ctrl for shortcuts.
+    """
+
+    def __init__(
+        self,
+        hotkey: str,
+        on_start: Callable,
+        on_stop: Callable,
+        max_tap_duration: float = 0.4,
+    ):
+        self._hotkey_name = hotkey
+        self._on_start = on_start
+        self._on_stop = on_stop
+        self._max_tap_duration = max_tap_duration
+        self._listener = None
+        self._recording = False
+        self._target_pressed_at: float = 0
+        self._other_key_pressed = False
+
+    def start(self) -> None:
+        from pynput import keyboard
+
+        target = _resolve_key(self._hotkey_name)
+
+        def on_press(key):
+            if key == target:
+                self._target_pressed_at = time.monotonic()
+                self._other_key_pressed = False
+            elif self._target_pressed_at > 0:
+                self._other_key_pressed = True
+
+        def on_release(key):
+            if key == target and self._target_pressed_at > 0:
+                elapsed = time.monotonic() - self._target_pressed_at
+                self._target_pressed_at = 0
+                if not self._other_key_pressed and elapsed <= self._max_tap_duration:
+                    self._toggle()
+
+        self._listener = keyboard.Listener(on_press=on_press, on_release=on_release)
+        self._listener.start()
+
+    def _toggle(self):
+        if not self._recording:
+            self._recording = True
+            self._on_start()
+        else:
+            self._recording = False
+            self._on_stop()
+
+    def stop(self):
+        if self._listener:
+            self._listener.stop()
+            self._listener = None
+
+    @property
+    def is_recording(self) -> bool:
+        return self._recording

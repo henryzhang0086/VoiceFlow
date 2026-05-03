@@ -7,6 +7,7 @@ Provides: menu bar icon + status + hotkey selection + start/stop control.
 from __future__ import annotations
 
 import threading
+import time
 from pathlib import Path
 
 import rumps
@@ -15,6 +16,7 @@ from .config import Config, load_config
 from .factory import create_engine
 from .hotkey import CombinedHotkeyListener, LoneTapToggleListener, _LONE_TAP_KEYS
 from .indicator import MenuBarIndicator
+from . import overlay
 
 _HOTKEY_OPTIONS = [
     ("Shift（单击）", "shift"),
@@ -30,7 +32,7 @@ _HOTKEY_OPTIONS = [
 
 class VoiceFlowApp(rumps.App):
     def __init__(self, config: Config):
-        super().__init__("VoiceFlow", quit_button=None)
+        super().__init__("VoiceF", quit_button=None)
         self._config = config
         self._engine = None
         self._indicator = MenuBarIndicator()
@@ -40,7 +42,11 @@ class VoiceFlowApp(rumps.App):
         self._current_hotkey = config.toggle_hotkey or config.hotkey
 
         self.icon = None
-        self.title = "🎙"
+        self.title = "🎙️"
+        icon_dir = Path(__file__).parent / "icons"
+        self._ripple_frames = [str(icon_dir / f"ripple_{i}.png") for i in range(4)]
+        self._ripple_idx = 0
+        self._last_ripple = 0.0
 
         hotkey_menu = rumps.MenuItem("快捷键")
         for label, key in _HOTKEY_OPTIONS:
@@ -57,10 +63,6 @@ class VoiceFlowApp(rumps.App):
             None,
             rumps.MenuItem("退出", callback=self._quit),
         ]
-
-        # Timer to refresh menubar title with audio level bars during recording
-        self._level_timer = rumps.Timer(self._refresh_level, 0.1)
-        self._level_timer.start()
 
         threading.Thread(target=self._load_engine, daemon=True).start()
 
@@ -131,8 +133,7 @@ class VoiceFlowApp(rumps.App):
                 on_result=self._on_result,
                 on_error=self._on_error,
             )
-            # Wire audio level to the waveform indicator
-            self._engine.recorder._on_level = self._indicator.update_level
+            self._engine.recorder._on_level = self._on_audio_level
 
             self._engine.start()
 
@@ -147,31 +148,46 @@ class VoiceFlowApp(rumps.App):
         if self._engine and not self._loading:
             self._engine.start_recording()
             self._indicator.show()
+            overlay.show()
             self._recording = True
+            self._ripple_idx = 0
+            self._last_ripple = 0.0
+            self.title = ""
+            self.icon = self._ripple_frames[0]
+            self.template = True
             self._update_status("录音中...")
 
     def _stop_recording(self) -> None:
         if self._engine and not self._loading:
             self._recording = False
             self._indicator.hide()
-            self.title = "⏳"
+            self.icon = None
+            self.title = "🎙️"
             self._engine.stop_recording()
             self._update_status("转写中...")
 
-    def _refresh_level(self, _) -> None:
-        """Called by rumps Timer every 100ms to update menubar with audio bars."""
+    def _on_audio_level(self, level: float) -> None:
+        self._indicator.update_level(level)
+        overlay.update_level(level)
         if self._recording:
-            title = self._indicator.render_title()
-            if title:
-                self.title = title
+            now = time.monotonic()
+            if now - self._last_ripple > 0.6:
+                self._last_ripple = now
+                self._ripple_idx = (self._ripple_idx + 1) % 4
+                self.icon = self._ripple_frames[self._ripple_idx]
+                self.template = True
 
     def _on_result(self, text: str) -> None:
+        overlay.hide()
+        self.icon = None
+        self.title = "🎙️"
         self._update_status("空闲")
-        self.title = "🎙"
 
     def _on_error(self, exc: Exception) -> None:
+        overlay.hide()
+        self.icon = None
+        self.title = "🎙️"
         self._update_status(f"错误: {exc}")
-        self.title = "⚠️"
 
     def _update_status(self, status: str) -> None:
         try:
@@ -183,6 +199,7 @@ class VoiceFlowApp(rumps.App):
     def _quit(self, _) -> None:
         if self._hotkey_listener:
             self._hotkey_listener.stop()
+        overlay.shutdown()
         if self._engine:
             self._engine.shutdown()
         rumps.quit_application()
